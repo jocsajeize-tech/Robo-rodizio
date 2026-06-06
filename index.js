@@ -5,37 +5,26 @@ const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const pino = require('pino'); // Importa a biblioteca de log obrigatória
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Pasta temporária correta aceita pela Render
+// Pasta temporária aceita pela Render no plano gratuito
 const SESSAO_PATH = '/tmp/sessao_whatsapp';
 
 let sock;
 let qrCodeBase64 = "";
 let statusRobo = "Iniciando...";
 
-// Cria um logger básico manual para evitar que o Baileys quebre com status 1
-const loggerManual = {
-    level: 'silent',
-    log: () => {},
-    info: () => {},
-    error: () => {},
-    warn: () => {},
-    debug: () => {},
-    trace: () => {},
-    child: function() { return this; }
-};
-
 async function conectarWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(SESSAO_PATH);
     
-    // Inicialização segura injetando o logger manual para não travar
+    // Inicialização correta usando o pino configurado para não encher a tela
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
-        logger: loggerManual
+        logger: pino({ level: 'silent' })
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -64,7 +53,7 @@ async function conectarWhatsApp() {
 
 app.get('/', (req, res) => {
     if (qrCodeBase64) {
-        res.send(`<h2>Escaneie o QR Code abaixo para conectar o Rodízio:</h2><br><img src="${qrCodeBase64}" style="width:300px;height:300px;"/>`);
+        res.send(`<h2>Escaneie o QR Code abaixo para conectar:</h2><br><img src="${qrCodeBase64}" style="width:300px;height:300px;"/>`);
     } else {
         res.send(`<h2>Status do Robô: ${statusRobo}</h2>`);
     }
