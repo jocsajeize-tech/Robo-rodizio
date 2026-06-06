@@ -10,7 +10,6 @@ let sock = null;
 let qrCodeBase64 = "";
 let statusRobo = "Iniciando...";
 
-// Objeto simples para guardar os dados na memória RAM
 let dadosAutenticacao = {
     creds: initAuthCreds(),
     keys: {}
@@ -19,7 +18,6 @@ let dadosAutenticacao = {
 async function conectarWhatsApp() {
     statusRobo = "Gerando QR Code...";
     
-    // Gerenciador oficial em memória recomendado pela biblioteca
     const state = {
         creds: dadosAutenticacao.creds,
         keys: {
@@ -28,9 +26,7 @@ async function conectarWhatsApp() {
                 for (const id of ids) {
                     let value = dadosAutenticacao.keys[`${type}-${id}`];
                     if (value) {
-                        if (type === 'app-state-sync-key') {
-                            value = BufferJSON.fromJSON(value);
-                        }
+                        if (type === 'app-state-sync-key') value = BufferJSON.fromJSON(value);
                         data[id] = value;
                     }
                 }
@@ -54,7 +50,9 @@ async function conectarWhatsApp() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["Robo Rodizio", "Chrome", "1.0.0"]
+        browser: ["Robo Rodizio", "Chrome", "1.0.0"],
+        // ESTA LINHA IMPEDE O TRAVAMENTO NA RENDER:
+        syncFullHistory: false
     });
 
     sock.ev.on('creds.update', (update) => {
@@ -76,14 +74,11 @@ async function conectarWhatsApp() {
         if (connection === 'close') {
             qrCodeBase64 = "";
             const deveReiniciar = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            statusRobo = "Conexão instável. Reiniciando...";
-            if (deveReiniciar) {
-                conectarWhatsApp();
-            }
+            statusRobo = "Carregando código...";
+            if (deveReiniciar) conectarWhatsApp();
         } else if (connection === 'open') {
             qrCodeBase64 = "";
             statusRobo = "Online e conectado!";
-            console.log("Robô conectado com sucesso!");
         }
     });
 }
@@ -91,20 +86,20 @@ async function conectarWhatsApp() {
 app.get('/', (req, res) => {
     if (qrCodeBase64) {
         res.send(`
-            <meta http-equiv="refresh" content="12">
+            <meta http-equiv="refresh" content="15">
             <div style="text-align:center; font-family:sans-serif; margin-top:50px;">
                 <h2 style="color: #25D366;">Escaneie o QR Code abaixo:</h2>
                 <br>
                 <img src="${qrCodeBase64}" style="width:280px; height:280px; border:3px solid #25D366; padding:10px; border-radius:8px;"/>
-                <p>A página atualiza o código sozinha se expirar.</p>
+                <p>A página atualiza sozinha se o código mudar.</p>
             </div>
         `);
     } else {
         res.send(`
-            <meta http-equiv="refresh" content="4">
+            <meta http-equiv="refresh" content="5">
             <div style="text-align:center; font-family:sans-serif; margin-top:50px;">
                 <h2>Status: ${statusRobo}</h2>
-                <p>Criando canal de comunicação... Aguarde alguns segundos.</p>
+                <p>Aguarde o processamento leve do servidor...</p>
             </div>
         `);
     }
