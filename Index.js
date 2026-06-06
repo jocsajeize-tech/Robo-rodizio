@@ -1,11 +1,10 @@
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const express = require('express');
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web-js');
-const qrcode = require('qrcode-terminal');
-const PDFDocument = require('pdfkit');
 const cron = require('node-cron');
+const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
-const https = require('https'); // Adicionado para fazer o robô se manter acordado
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,50 +14,64 @@ const BANCO_DADOS_PATH = path.join(__dirname, 'banco_dados.json');
 if (!fs.existsSync(BANCO_DADOS_PATH)) {
     const dadosIniciais = {
         ponteiroCulto: 0,
-        ponteiroReuniao: 0,
-        opsCulto: ["CESA", "ROMULO", "DANIEL", "FABIO"],
-        opsReuniao: ["DANIEL F.N", "JONATAS"],
-        opsEnsaio: ["JONATAS"],
-        opsCultoJovem: ["FABIO"]
+        opsCulto: ["CESA", "ROMULO", "DANIEL", "FABIO"]
     };
     fs.writeFileSync(BANCO_DADOS_PATH, JSON.stringify(dadosIniciais, null, 2));
 }
 
-const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './sessao_whatsapp' }),
-    puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    }
-});
+let sock;
+let qrCodeBase64 = "";
+let statusRobo = "Iniciando...";
 
-let qrCodeLink = "";
-
-client.on('qr', (qr) => {
-    qrCodeLink = qr;
-    console.log('NOVO QR CODE GENERADO.');
-});
-
-client.on('ready', () => {
-    console.log('Robô ativo na Render!');
-    qrCodeLink = "";
+async function conectarWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('sessao_whatsapp');
     
-    // 🧠 O PULO DO GATO: De 10 em 10 minutos o robô acessa ele mesmo na internet para NUNCA DORMIR
-    setInterval(() => {
-        const urlMinha = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}.onrender.com/`;
-        if (process.env.RENDER_EXTERNAL_HOSTNAME) {
-            https.get(urlMinha, (res) => {
-                console.log('Mantendo o robô acordado de graça...');
-            }).on('error', (e) => console.log('Erro no auto-acesso'));
-        }
-    }, 600000); // 10 minutos
-});
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
 
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            QRCode.toDataURL(qr, (err, url) => {
+                if (!err) qrCodeBase64 = url;
+            });
+            statusRobo = "Aguardando leitura do QR Code";
+        }
+
+        if (connection === 'close') {
+            const deviaReiniciar = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
+            console.log('Conexão fechada. Reiniciando de forma automática?', deviaReiniciar);
+            statusRobo = "Desconectado. Tentando reconectar...";
+            if (deviaReiniciar) conectarWhatsApp();
+        } else if (connection === 'open') {
+            console.log('Robô ativo no WhatsApp com Baileys!');
+            qrCodeBase64 = "";
+            statusRobo = "Online e conectado!";
+            
+            // Auto-ping para a Render nunca dormir
+            setInterval(() => {
+                if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+                    const urlMinha = `https://${process.env.RENDER_EXTERNAL_HOSTNAME}.onrender.com/`;
+                    https.get(urlMinha, () => console.log('Robô acordado!')).on('error', () => {});
+                }
+            }, 600000); 
+        }
+    });
+}
+
+// Escala automática todo dia 28 às 08:00
 cron.schedule('0 8 28 * *', () => {
     processarEEnviarRodizio();
 });
 
 function processarEEnviarRodizio() {
+    if (statusRobo !== "Online e conectado!") return console.log("Robô desconectado, impossível enviar.");
+    
     const db = JSON.parse(fs.readFileSync(BANCO_DADOS_PATH, 'utf8'));
     const hoje = new Date();
     const proximoMesIdx = (hoje.getMonth() + 1) % 12;
@@ -85,20 +98,21 @@ function processarEEnviarRodizio() {
     db.ponteiroCulto = pC;
     fs.writeFileSync(BANCO_DADOS_PATH, JSON.stringify(db, null, 2));
 
-    const ID_DO_GRUPO = "1234567890@g.us"; 
-    client.sendMessage(ID_DO_GRUPO, textoMensagem)
-        .then(() => console.log("Enviado!"))
+    const ID_DO_GRUPO = "1234567890@g.us"; // 👈 Troque pelo ID do seu grupo
+    sock.sendMessage(ID_DO_GRUPO, { text: textoMensagem })
+        .then(() => console.log("Enviado com sucesso!"))
         .catch(err => console.error(err));
 }
 
 app.get('/', (req, res) => {
-    if (qrCodeLink) {
-        res.send(`<img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCodeLink)}"/>`);
-    } else if (client.info) {
-        res.send(`<h2>Robô Online na Render como: ${client.info.pushname}</h2>`);
+    if (qrCodeBase64) {
+        res.send(`<h2>Escaneie para conectar o WhatsApp do Rodízio:</h2><img src="${qrCodeBase64}"/>`);
     } else {
-        res.send(`<h2>Iniciando... Recarregue a página.</h2>`);
+        res.send(`<h2>Status do Robô: ${statusRobo}</h2>`);
     }
 });
 
-app.listen(PORT, () => console.log(`Rodando`));
+app.listen(PORT, () => {
+    console.log(`Servidor Web Ativo na porta ${PORT}`);
+    conectarWhatsApp();
+});
