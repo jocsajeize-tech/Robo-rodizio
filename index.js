@@ -16,13 +16,26 @@ let sock;
 let qrCodeBase64 = "";
 let statusRobo = "Iniciando...";
 
+// Cria um logger básico manual para evitar que o Baileys quebre com status 1
+const loggerManual = {
+    level: 'silent',
+    log: () => {},
+    info: () => {},
+    error: () => {},
+    warn: () => {},
+    debug: () => {},
+    trace: () => {},
+    child: function() { return this; }
+};
+
 async function conectarWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(SESSAO_PATH);
     
-    // Removido o logger problemático que causou o status 1
+    // Inicialização segura injetando o logger manual para não travar
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false
+        printQRInTerminal: false,
+        logger: loggerManual
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -51,7 +64,7 @@ async function conectarWhatsApp() {
 
 app.get('/', (req, res) => {
     if (qrCodeBase64) {
-        res.send(`<h2>Escaneie o QR Code abaixo para conectar:</h2><br><img src="${qrCodeBase64}" style="width:300px;height:300px;"/>`);
+        res.send(`<h2>Escaneie o QR Code abaixo para conectar o Rodízio:</h2><br><img src="${qrCodeBase64}" style="width:300px;height:300px;"/>`);
     } else {
         res.send(`<h2>Status do Robô: ${statusRobo}</h2>`);
     }
