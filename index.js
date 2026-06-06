@@ -9,7 +9,7 @@ const https = require('https');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Usamos /tmp/ pois é a única pasta onde a Render permite gravação no plano gratuito
+// Pasta temporária correta aceita pela Render
 const SESSAO_PATH = '/tmp/sessao_whatsapp';
 
 let sock;
@@ -19,10 +19,10 @@ let statusRobo = "Iniciando...";
 async function conectarWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState(SESSAO_PATH);
     
+    // Removido o logger problemático que causou o status 1
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
-        logger: { level: 'silent' }
+        printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -38,27 +38,26 @@ async function conectarWhatsApp() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            const deviaReiniciar = (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut);
             statusRobo = "Desconectado. Tentando reconectar...";
-            if (shouldReconnect) conectarWhatsApp();
+            if (deviaReiniciar) conectarWhatsApp();
         } else if (connection === 'open') {
             qrCodeBase64 = "";
             statusRobo = "Online e conectado!";
-            console.log('Conectado com sucesso!');
+            console.log("Robô conectado com sucesso!");
         }
     });
 }
 
-// Rota principal para mostrar QR Code
 app.get('/', (req, res) => {
     if (qrCodeBase64) {
-        res.send(`<h1>Escaneie o QR Code:</h1><img src="${qrCodeBase64}"/>`);
+        res.send(`<h2>Escaneie o QR Code abaixo para conectar:</h2><br><img src="${qrCodeBase64}" style="width:300px;height:300px;"/>`);
     } else {
-        res.send(`<h1>Status: ${statusRobo}</h1>`);
+        res.send(`<h2>Status do Robô: ${statusRobo}</h2>`);
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Servidor ativo na porta ${PORT}`);
     conectarWhatsApp();
 });
